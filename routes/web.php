@@ -6,4 +6,6 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/auto-deploy-test', function() => return 'Version 2.0 - AUTO DEPLOY! 🚀');
+Route::get('/cicd-test', function() {
+    return 'Version 2.0 - AUTO DEPLOY! 🚀';
+});
