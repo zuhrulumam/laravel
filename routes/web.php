@@ -6,4 +6,4 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/auto-deploy-test', function() => 'CI/CD Works! 🚀');
+Route::get('/auto-deploy-test', function() => return 'Version 2.0 - AUTO DEPLOY! 🚀');
