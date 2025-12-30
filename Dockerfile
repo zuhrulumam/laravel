@@ -1,7 +1,7 @@
 # 1. Build dependencies
 FROM composer:2.7 AS vendor
 WORKDIR /app
-# Copy everything, then install
+
 COPY . .
 
 RUN composer install \
@@ -23,6 +23,7 @@ RUN apk add --no-cache \
     freetype-dev \
     libzip-dev \
     icu-dev \
+    bash \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         gd \
@@ -47,17 +48,20 @@ COPY --from=vendor /app/vendor ./vendor
 # Copy application
 COPY . .
 
-# Laravel optimizations
-RUN php artisan config:cache && \
-    php artisan route:cache && \
-    php artisan view:cache && \
-    chown -R www-data:www-data storage bootstrap/cache && \
+# Set permissions
+RUN chown -R www-data:www-data storage bootstrap/cache && \
     chmod -R 775 storage bootstrap/cache
+
+# Create required directories
+RUN mkdir -p /var/log/supervisor /var/log/nginx /var/run
 
 # Copy configurations
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["/entrypoint.sh"]
