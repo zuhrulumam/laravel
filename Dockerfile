@@ -1,19 +1,23 @@
-# Stage 1: Build PHP dependencies
-FROM composer:2.7 as vendor
+# 1. Build dependencies
+FROM composer:2.7 AS vendor
 WORKDIR /app
-COPY composer.json composer.lock ./
+# Copy everything, then install
+COPY . .
+
 RUN composer install \
     --no-dev \
     --no-interaction \
-    --no-plugins \
-    --no-scripts \
-    --prefer-dist
+    --optimize-autoloader \
+    --prefer-dist \
+    --ignore-platform-reqs
 
-# Stage 2: Final Image
-FROM dunglas/frankenphp:1.2-php8.3-alpine
+# 2. Final image
+FROM php:8.3-fpm-alpine
 
-# Install Laravel system requirements
+# Install dependencies
 RUN apk add --no-cache \
+    nginx \
+    supervisor \
     libpng-dev \
     libjpeg-turbo-dev \
     freetype-dev \
@@ -21,33 +25,39 @@ RUN apk add --no-cache \
     icu-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
-    gd \
-    pdo_mysql \
-    intl \
-    zip \
-    opcache \
-    pcntl
+        gd \
+        pdo_mysql \
+        intl \
+        zip \
+        opcache \
+        pcntl
 
-# Set working directory
+# Production PHP config
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" && \
+    echo "opcache.enable=1" >> "$PHP_INI_DIR/conf.d/opcache.ini" && \
+    echo "opcache.memory_consumption=256" >> "$PHP_INI_DIR/conf.d/opcache.ini" && \
+    echo "opcache.max_accelerated_files=20000" >> "$PHP_INI_DIR/conf.d/opcache.ini" && \
+    echo "opcache.validate_timestamps=0" >> "$PHP_INI_DIR/conf.d/opcache.ini"
+
 WORKDIR /app
 
-# Copy application and vendor from build stage
-COPY --from=vendor /app/vendor /app/vendor
+# Copy vendor
+COPY --from=vendor /app/vendor ./vendor
+
+# Copy application
 COPY . .
 
-# Set permissions for Laravel
-RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
+# Laravel optimizations
+RUN php artisan config:cache && \
+    php artisan route:cache && \
+    php artisan view:cache && \
+    chown -R www-data:www-data storage bootstrap/cache && \
+    chmod -R 775 storage bootstrap/cache
 
-# Production PHP settings
-RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+# Copy configurations
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Set FrankenPHP environment variables
-ENV FRANKENPHP_CONFIG="worker ./public/index.php"
-ENV APP_ENV=production
-ENV APP_RUNTIME=Laravel\Octane\FrankenPHP\Runtime
-
-# Expose the port Easypanel expects (usually 80 or 8080)
 EXPOSE 80
 
-# Run the app
-ENTRYPOINT ["php", "artisan", "octane:frankenphp", "--host=0.0.0.0", "--port=80"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+node_modules
+tests
+*.md
+.gitignore
+.editorconfig
+phpunit.xml
+vendor
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
