@@ -1,12 +1,13 @@
+# ─── Stage 1: resolve Composer dependencies ────────────────────
 FROM composer:latest AS composer
 WORKDIR /app
-# Copy only manifests first → layer cached until deps actually change
-COPY composer.json composer.lock ./
+# composer.lock* — the glob makes it optional if not committed
+COPY composer.json composer.lock* ./
 RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
 
+# ─── Stage 2: production image ──────────────────────────────────
 FROM dunglas/frankenphp:latest
 
-# All extensions Laravel actually needs
 RUN install-php-extensions \
     pdo_mysql \
     opcache \
@@ -21,27 +22,11 @@ RUN install-php-extensions \
 
 WORKDIR /app
 
-# Bring in the resolved vendor (cached independently of app code)
 COPY --from=composer /app/vendor ./vendor
-
-# Copy application source
 COPY . .
 
-# Guarantee a .env exists (fall back to .env.example)
-RUN [ ! -f .env ] && cp .env.example .env || true
-
-# Warm up Laravel caches
-# NOTE: config:cache is intentionally omitted so runtime env vars
-#       (e.g. set inside EasyPanel) are still respected.
-#       Add `php artisan config:cache` back if you bake .env into the image.
-RUN php artisan key:generate --force \
- && php artisan route:cache \
- && php artisan view:cache
-
-# Everything must be owned by www-data
 RUN chown -R www-data:www-data /app
 
-# Caddyfile: document root → public/, pretty-URL rewrite → index.php
 RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
 {
     frankenphp
