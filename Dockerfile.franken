@@ -1,0 +1,25 @@
+FROM dunglas/frankenphp:latest
+
+# Install system dependencies
+RUN install-php-extensions \
+    pdo_mysql \
+    opcache
+
+# Set working directory
+WORKDIR /app
+
+# Copy application
+COPY . .
+
+# Install PHP dependencies
+RUN php composer.phar install --no-dev --optimize-autoloader || \
+    composer install --no-dev --optimize-autoloader
+
+# Laravel permissions
+RUN chown -R www-data:www-data storage bootstrap/cache
+
+# Expose port
+EXPOSE 80
+
+# Start FrankenPHP
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]
