@@ -57,12 +57,10 @@ RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
 
 :80 {
     root * /app/public
+    @notfile not file
     route {
+        rewrite @notfile /index.php
         php
-        rewrite {
-            r .*
-            to {path} {path}/ /index.php?{query}
-        }
         file_server
     }
 }
