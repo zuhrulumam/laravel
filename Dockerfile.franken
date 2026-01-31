@@ -25,6 +25,29 @@ WORKDIR /app
 COPY --from=composer /app/vendor ./vendor
 COPY . .
 
+# EasyPanel passes these as --build-arg, wire them into .env
+ARG APP_NAME=Laravel
+ARG APP_ENV=production
+ARG APP_KEY
+ARG APP_DEBUG=false
+ARG APP_URL=http://localhost
+ARG DB_CONNECTION=mysql
+ARG DB_HOST=127.0.0.1
+ARG DB_PORT=3306
+ARG DB_DATABASE=laravel
+ARG DB_USERNAME=root
+ARG DB_PASSWORD
+
+RUN printf \
+    "APP_NAME=%s\nAPP_ENV=%s\nAPP_KEY=%s\nAPP_DEBUG=%s\nAPP_URL=%s\nDB_CONNECTION=%s\nDB_HOST=%s\nDB_PORT=%s\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n" \
+    "$APP_NAME" "$APP_ENV" "$APP_KEY" "$APP_DEBUG" "$APP_URL" \
+    "$DB_CONNECTION" "$DB_HOST" "$DB_PORT" "$DB_DATABASE" "$DB_USERNAME" "$DB_PASSWORD" \
+    > /app/.env
+
+RUN php artisan key:generate --force \
+ && php artisan route:cache \
+ && php artisan view:cache
+
 RUN chown -R www-data:www-data /app
 
 RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
@@ -36,9 +59,11 @@ RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
     root * /app/public
     route {
         php
-        file_server {
-            try_files {path} {path}/ /index.php?{query}
+        rewrite {
+            r .*
+            to {path} {path}/ /index.php?{query}
         }
+        file_server
     }
 }
 EOF
