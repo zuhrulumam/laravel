@@ -1,25 +1,63 @@
+FROM composer:latest AS composer
+WORKDIR /app
+# Copy only manifests first → layer cached until deps actually change
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
+
 FROM dunglas/frankenphp:latest
 
-# Install system dependencies
+# All extensions Laravel actually needs
 RUN install-php-extensions \
     pdo_mysql \
-    opcache
+    opcache \
+    mbstring \
+    gd \
+    exif \
+    fileinfo \
+    tokenizer \
+    zip \
+    pcntl \
+    intl
 
-# Set working directory
 WORKDIR /app
 
-# Copy application
+# Bring in the resolved vendor (cached independently of app code)
+COPY --from=composer /app/vendor ./vendor
+
+# Copy application source
 COPY . .
 
-# Install PHP dependencies
-RUN php composer.phar install --no-dev --optimize-autoloader || \
-    composer install --no-dev --optimize-autoloader
+# Guarantee a .env exists (fall back to .env.example)
+RUN [ ! -f .env ] && cp .env.example .env || true
 
-# Laravel permissions
-RUN chown -R www-data:www-data storage bootstrap/cache
+# Warm up Laravel caches
+# NOTE: config:cache is intentionally omitted so runtime env vars
+#       (e.g. set inside EasyPanel) are still respected.
+#       Add `php artisan config:cache` back if you bake .env into the image.
+RUN php artisan key:generate --force \
+ && php artisan route:cache \
+ && php artisan view:cache
 
-# Expose port
+# Everything must be owned by www-data
+RUN chown -R www-data:www-data /app
+
+# Caddyfile: document root → public/, pretty-URL rewrite → index.php
+RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
+{
+    frankenphp
+}
+
+:80 {
+    root * /app/public
+    frankenphp
+    route {
+        php
+        file_server {
+            try_files {path} {path}/ /index.php?{query}
+        }
+    }
+}
+EOF
+
 EXPOSE 80
-
-# Start FrankenPHP
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]
