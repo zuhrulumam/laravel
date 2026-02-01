@@ -65,4 +65,4 @@ HEALTHCHECK --interval=30s --timeout=3s \
     CMD curl -sf http://localhost/ > /dev/null || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["frankenphp"]
+CMD ["frankenphp", "run"]
