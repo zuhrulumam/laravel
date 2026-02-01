@@ -1,90 +1,71 @@
-# ─── Stage 1: resolve Composer dependencies ────────────────────
-FROM composer:latest AS composer
-WORKDIR /app
-# composer.lock* — the glob makes it optional if not committed
-COPY composer.json composer.lock* ./
-RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
-
-# ─── Stage 2: production image ──────────────────────────────────
-FROM dunglas/frankenphp:latest
-
-RUN install-php-extensions \
-    pdo_mysql \
-    opcache \
-    mbstring \
-    gd \
-    exif \
-    fileinfo \
-    tokenizer \
-    zip \
-    pcntl \
-    intl
+# ─────────────────────────────────────────────
+# Stage 1: Install Composer dependencies
+# ─────────────────────────────────────────────
+FROM composer:latest AS deps
 
 WORKDIR /app
 
-COPY --from=composer /app/vendor ./vendor
+# Copy composer files dulu — layer caching supaya install cepet di rebuild
+COPY composer.json composer.lock ./
+
+RUN composer install \
+    --no-dev \
+    --no-scripts \
+    --prefer-dist \
+    --no-interaction \
+    --no-autoloader
+
+# Copy full source baru
 COPY . .
 
-# EasyPanel passes these as --build-arg, wire them into .env
-ARG APP_NAME=Laravel
-ARG APP_ENV=production
-ARG APP_KEY
-ARG APP_DEBUG=false
-ARG APP_URL=http://localhost
-ARG DB_CONNECTION=mysql
-ARG DB_HOST=127.0.0.1
-ARG DB_PORT=3306
-ARG DB_DATABASE=laravel
-ARG DB_USERNAME=root
-ARG DB_PASSWORD
+# Optimize autoloader
+RUN composer dump-autoload \
+    --classmap-authoritative \
+    --no-dev
 
-RUN printf \
-    "APP_NAME=%s\nAPP_ENV=%s\nAPP_KEY=%s\nAPP_DEBUG=%s\nAPP_URL=%s\nDB_CONNECTION=%s\nDB_HOST=%s\nDB_PORT=%s\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n" \
-    "$APP_NAME" "$APP_ENV" "$APP_KEY" "$APP_DEBUG" "$APP_URL" \
-    "$DB_CONNECTION" "$DB_HOST" "$DB_PORT" "$DB_DATABASE" "$DB_USERNAME" "$DB_PASSWORD" \
-    > /app/.env
+# ─────────────────────────────────────────────
+# Stage 2: Production image
+# ─────────────────────────────────────────────
+FROM dunglas/frankenphp:latest
 
-RUN php artisan key:generate --force \
- && php artisan route:cache \
- && php artisan view:cache
+# PHP extensions yang dibutuhkan Laravel
+RUN install-php-extensions \
+    pdo_mysql \
+    pdo_pgsql \
+    redis \
+    gmp \
+    intl \
+    zip \
+    bcmath
 
-RUN chown -R www-data:www-data /app
+# curl for HEALTHCHECK
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
-{
-    frankenphp
-}
+WORKDIR /app
 
-:80 {
-    root * /app/public
-    @notfile not file
-    route {
-        rewrite @notfile /index.php
-        php
-        file_server
-    }
-}
-EOF
+# Copy app dari stage 1
+COPY --from=deps /app .
 
-EXPOSE 80
+# Caddyfile & entrypoint
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-# Startup: migrate (creates missing tables like sessions), then run FrankenPHP.
-# migrate runs at container start because the DB host (websiteku_mysqldb)
-# is only reachable at runtime, not during docker build.
-# Startup script handles both fresh DB and pre-existing DB
-RUN cat > /app/start.sh << 'SCRIPT'
-#!/bin/sh
-set -e
-# Fresh DB: migrate --force creates all tables, done.
-# Pre-existing DB (tables exist but migrations table has no records):
-#   migrate fails → fake seeds the migrations table → FrankenPHP starts.
-#   Next deploy's migrate will only run genuinely new migrations.
-php artisan migrate --force || {
-    echo "Tables exist without migration records — seeding migrations table"
-    php artisan migrate --fake --force
-}
-exec frankenphp run --config /etc/frankenphp/Caddyfile
-SCRIPT
-RUN chmod +x /app/start.sh
+# Pre-cache hal yang env-independent
+RUN php artisan route:cache \
+    && php artisan view:cache
 
-CMD ["/app/start.sh"]
+# Writable directories Laravel
+RUN chown -R www-data:www-data \
+    /app/storage \
+    /app/bootstrap/cache
+
+EXPOSE 80 443 443/udp
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -sf http://localhost/ > /dev/null || exit 1
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["frankenphp"]

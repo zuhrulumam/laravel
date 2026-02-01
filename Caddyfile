@@ -4,6 +4,9 @@
 
 :80 {
     root * /app/public
+
+    @laravel not file
+    rewrite @laravel /index.php
+
     php_server
-    file_server
 }
