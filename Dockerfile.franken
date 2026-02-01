@@ -71,4 +71,20 @@ EXPOSE 80
 # Startup: migrate (creates missing tables like sessions), then run FrankenPHP.
 # migrate runs at container start because the DB host (websiteku_mysqldb)
 # is only reachable at runtime, not during docker build.
-CMD ["sh", "-c", "php artisan migrate --force && frankenphp run --config /etc/frankenphp/Caddyfile"]
+# Startup script handles both fresh DB and pre-existing DB
+RUN cat > /app/start.sh << 'SCRIPT'
+#!/bin/sh
+set -e
+# Fresh DB: migrate --force creates all tables, done.
+# Pre-existing DB (tables exist but migrations table has no records):
+#   migrate fails → fake seeds the migrations table → FrankenPHP starts.
+#   Next deploy's migrate will only run genuinely new migrations.
+php artisan migrate --force || {
+    echo "Tables exist without migration records — seeding migrations table"
+    php artisan migrate --fake --force
+}
+exec frankenphp run --config /etc/frankenphp/Caddyfile
+SCRIPT
+RUN chmod +x /app/start.sh
+
+CMD ["/app/start.sh"]
