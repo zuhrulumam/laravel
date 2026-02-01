@@ -1,11 +1,10 @@
 #!/bin/bash
 set -e
 
-# config:cache di-run saat startup, bukan build time
-# supaya env vars dari EasyPanel / docker-compose terbaca
+# Semua caching di-run saat startup
+# supaya env vars dari EasyPanel terbaca (APP_KEY, DB_HOST, dll)
 php artisan config:cache
-
-# Uncomment kalau butuh auto-migrate:
-# php artisan migrate --force
+php artisan route:cache
+php artisan view:cache
 
 exec "$@"

@@ -6,7 +6,7 @@ FROM composer:latest AS deps
 WORKDIR /app
 
 # Copy composer files dulu — layer caching supaya install cepet di rebuild
-COPY composer.json composer.lock ./
+COPY composer.json ./
 
 RUN composer install \
     --no-dev \
@@ -53,9 +53,6 @@ COPY Caddyfile /etc/caddy/Caddyfile
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-# Pre-cache hal yang env-independent
-RUN php artisan route:cache \
-    && php artisan view:cache
 
 # Writable directories Laravel
 RUN chown -R www-data:www-data \
