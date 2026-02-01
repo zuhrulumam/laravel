@@ -67,4 +67,8 @@ RUN mkdir -p /etc/frankenphp && cat > /etc/frankenphp/Caddyfile << 'EOF'
 EOF
 
 EXPOSE 80
-CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]
+
+# Startup: migrate (creates missing tables like sessions), then run FrankenPHP.
+# migrate runs at container start because the DB host (websiteku_mysqldb)
+# is only reachable at runtime, not during docker build.
+CMD ["sh", "-c", "php artisan migrate --force && frankenphp run --config /etc/frankenphp/Caddyfile"]
