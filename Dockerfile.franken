@@ -19,30 +19,13 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev
 
 # =============================================================================
-# Stage 2: Frontend assets (skip if no frontend build needed)
-# =============================================================================
-FROM node:22-alpine AS frontend
-
-WORKDIR /app
-
-COPY package.json package-lock.json* ./
-
-RUN npm ci
-
-COPY . .
-
-RUN npm run build
-
-# =============================================================================
-# Stage 3: Production image
+# Stage 2: Production image
 # =============================================================================
 FROM dunglas/frankenphp:latest AS production
 
-# Install PHP extensions commonly needed by Laravel
 RUN install-php-extensions \
     pcntl \
     pdo_mysql \
-    pdo_pgsql \
     redis \
     intl \
     gd \
@@ -50,23 +33,18 @@ RUN install-php-extensions \
     bcmath \
     opcache
 
-# Set the server name (use :80 for HTTP-only, or your domain for auto HTTPS)
 ENV SERVER_NAME=:80
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 
 WORKDIR /app
 
-# Copy application from build stages
 COPY --from=composer /app/vendor ./vendor
-COPY --from=frontend /app/public/build ./public/build
 COPY . .
 
-# Set permissions
 RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache \
     && chmod -R 775 /app/storage /app/bootstrap/cache
 
-# Laravel optimization
 RUN php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache \
