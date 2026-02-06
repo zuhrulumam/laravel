@@ -42,15 +42,29 @@ WORKDIR /app
 COPY --from=composer /app/vendor ./vendor
 COPY . .
 
+# Create empty .env so Laravel can resolve OS env vars properly
+RUN touch .env
+
+# Set permissions
 RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache \
     && chmod -R 775 /app/storage /app/bootstrap/cache
 
-RUN php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache \
-    && php artisan event:cache
+# Startup script — caches config at runtime when env vars are available
+RUN printf '#!/bin/sh\n\
+set -e\n\
+echo "Caching Laravel config..."\n\
+php artisan config:cache\n\
+php artisan route:cache\n\
+php artisan view:cache\n\
+php artisan event:cache\n\
+php artisan migrate --force || true\n\
+echo "Starting FrankenPHP..."\n\
+exec frankenphp run --config /etc/frankenphp/Caddyfile\n' \
+> /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 EXPOSE 80 443
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost/up || exit 1
+
+CMD ["/app/entrypoint.sh"]
