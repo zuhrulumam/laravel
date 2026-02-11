@@ -1,68 +1,70 @@
-# ─────────────────────────────────────────────
-# Stage 1: Install Composer dependencies
-# ─────────────────────────────────────────────
-FROM composer:latest AS deps
+# =============================================================================
+# Stage 1: Composer dependencies
+# =============================================================================
+FROM composer:2 AS composer
 
 WORKDIR /app
 
-# Copy composer files dulu — layer caching supaya install cepet di rebuild
 COPY composer.json ./
 
 RUN composer install \
     --no-dev \
     --no-scripts \
+    --no-autoloader \
     --prefer-dist \
-    --no-interaction \
-    --no-autoloader
+    --no-interaction
 
-# Copy full source baru
 COPY . .
 
-# Optimize autoloader
-RUN composer dump-autoload \
-    --classmap-authoritative \
-    --no-dev
+RUN composer dump-autoload --optimize --no-dev
 
-# ─────────────────────────────────────────────
+# =============================================================================
 # Stage 2: Production image
-# ─────────────────────────────────────────────
-FROM dunglas/frankenphp:latest
+# =============================================================================
+FROM dunglas/frankenphp:latest AS production
 
-# PHP extensions yang dibutuhkan Laravel
 RUN install-php-extensions \
+    pcntl \
     pdo_mysql \
-    pdo_pgsql \
     redis \
-    gmp \
     intl \
+    gd \
     zip \
-    bcmath
+    bcmath \
+    opcache
 
-# curl for HEALTHCHECK
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+ENV SERVER_NAME=:80
+ENV APP_ENV=production
+ENV APP_DEBUG=false
 
 WORKDIR /app
 
-# Copy app dari stage 1
-COPY --from=deps /app .
+COPY --from=composer /app/vendor ./vendor
+COPY . .
 
-# Caddyfile & entrypoint
-COPY Caddyfile /etc/caddy/Caddyfile
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Create empty .env so Laravel can resolve OS env vars properly
+RUN touch .env
 
+# Set permissions
+RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache \
+    && chmod -R 775 /app/storage /app/bootstrap/cache
 
-# Writable directories Laravel
-RUN chown -R www-data:www-data \
-    /app/storage \
-    /app/bootstrap/cache
+# Startup script — caches config at runtime when env vars are available
+RUN printf '#!/bin/sh\n\
+set -e\n\
+echo "Caching Laravel config..."\n\
+php artisan config:cache\n\
+php artisan route:cache\n\
+php artisan view:cache\n\
+php artisan event:cache\n\
+php artisan migrate --force || true\n\
+echo "Starting FrankenPHP..."\n\
+exec frankenphp run --config /etc/frankenphp/Caddyfile\n' \
+> /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-EXPOSE 80 443 443/udp
+EXPOSE 80 443
 
-HEALTHCHECK --interval=30s --timeout=3s \
-    CMD curl -sf http://localhost/ > /dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost/up || exit 1
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["frankenphp", "run"]
+CMD ["/app/entrypoint.sh"]
