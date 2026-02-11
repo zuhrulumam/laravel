@@ -6,6 +6,11 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/cicd-test', function() {
+Route::get('/cicd-test', function () {
     return 'Version 2.0 - AUTO DEPLOY! 🚀';
 });
+
+use App\Http\Controllers\FileUploadController;
+
+Route::get('/upload', [FileUploadController::class, 'index']);
+Route::post('/upload', [FileUploadController::class, 'store']);
